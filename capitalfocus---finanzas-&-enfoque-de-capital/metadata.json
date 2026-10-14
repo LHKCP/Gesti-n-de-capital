@@ -1,0 +1,6 @@
+{
+  "name": "CapitalFocus - Finanzas & Enfoque de Capital",
+  "description": "Plataforma nórdica de alta precisión para gestión financiera personal: pantalla PIN de seguridad, registro diario optimista, vista de foco en tiempo real y gestión avanzada de compromisos fijos, metas de ahorro y deuda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
