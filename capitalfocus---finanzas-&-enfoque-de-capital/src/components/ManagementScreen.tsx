@@ -260,6 +260,7 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
   // Edit goal state
   const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
   const [editGoalName, setEditGoalName] = useState<string>('');
+  const [editGoalCurrent, setEditGoalCurrent] = useState<string>('');
   const [editGoalTarget, setEditGoalTarget] = useState<string>('');
   const [editGoalMonthly, setEditGoalMonthly] = useState<string>('');
 
@@ -425,6 +426,11 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
   const handleStartEditGoal = (goal: SavingsGoal) => {
     setEditingGoal(goal);
     setEditGoalName(goal.name);
+    setEditGoalCurrent(
+      goal.currentAmount !== undefined && goal.currentAmount !== null
+        ? goal.currentAmount.toString()
+        : '0'
+    );
     setEditGoalTarget(goal.targetAmount ? goal.targetAmount.toString() : '');
     setEditGoalMonthly(goal.monthlyContribution ? goal.monthlyContribution.toString() : '');
   };
@@ -434,10 +440,12 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
     if (!editingGoal || !onUpdateSavingsGoal) return;
     const parsedTarget = editGoalTarget ? parseFloat(editGoalTarget) : undefined;
     const parsedMonthly = editGoalMonthly ? parseFloat(editGoalMonthly) : undefined;
+    const parsedCurrent = editGoalCurrent.trim() !== '' ? parseFloat(editGoalCurrent) : 0;
 
     onUpdateSavingsGoal({
       ...editingGoal,
       name: editGoalName.trim() || editingGoal.name,
+      currentAmount: isNaN(parsedCurrent) ? (editingGoal.currentAmount || 0) : Math.max(0, parsedCurrent),
       targetAmount: parsedTarget,
       monthlyContribution: parsedMonthly,
     });
@@ -1376,11 +1384,20 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
 
                   {/* Numbers */}
                   <div className="flex justify-between items-baseline pt-1">
-                    <div className="flex flex-col">
-                      <span className="font-num text-[10px] text-[#bbcabf] uppercase tracking-wider font-semibold">
-                        Acumulado Actual
-                      </span>
-                      <span className="font-num text-2xl text-[#4edea3] font-bold">
+                    <div
+                      onClick={() => handleStartEditGoal(goal)}
+                      className="flex flex-col cursor-pointer group"
+                      title="Haz clic para modificar el saldo acumulado"
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className="font-num text-[10px] text-[#bbcabf] uppercase tracking-wider font-semibold group-hover:text-[#4edea3] transition-colors">
+                          Acumulado Actual
+                        </span>
+                        <span className="material-symbols-outlined text-[13px] text-[#86948a] group-hover:text-[#4edea3] transition-colors">
+                          edit
+                        </span>
+                      </div>
+                      <span className="font-num text-2xl text-[#4edea3] font-bold group-hover:underline decoration-1 underline-offset-4 transition-all">
                         {currency}
                         {current.toLocaleString('es-ES')}
                       </span>
@@ -1447,7 +1464,7 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
                           type="button"
                           onClick={() => handleStartEditGoal(goal)}
                           className="w-7 h-7 rounded-lg bg-[#222a3d] hover:bg-[#2d3449] text-[#bbcabf] hover:text-white flex items-center justify-center transition-colors border border-white/5"
-                          title="Ajustar aporte mensual u objetivo"
+                          title="Ajustar saldo acumulado, aporte mensual u objetivo"
                         >
                           <span className="material-symbols-outlined text-[15px]">tune</span>
                         </button>
@@ -2046,6 +2063,27 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
                   onChange={(e) => setEditGoalName(e.target.value)}
                   className="w-full mt-1 bg-[#0b1326] border border-white/10 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-[#4edea3]"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-[#bbcabf] font-num">
+                    Ahorro Total Acumulado Actual ({currency})
+                  </label>
+                  <span className="text-[10px] text-[#4edea3] font-num font-semibold">Editable</span>
+                </div>
+                <input
+                  type="number"
+                  step="any"
+                  required
+                  placeholder="0.00"
+                  value={editGoalCurrent}
+                  onChange={(e) => setEditGoalCurrent(e.target.value)}
+                  className="w-full mt-1 bg-[#0b1326] border border-white/10 rounded-xl px-3 py-2 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
+                />
+                <span className="text-[11px] text-[#86948a] mt-1 block">
+                  Modifica directamente el importe ahorrado si te equivocaste o deseas corregir el saldo acumulado.
+                </span>
               </div>
 
               <div>
