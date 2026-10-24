@@ -1,32 +1,119 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { FinanceData, Transaction, FixedExpense, FixedIncome, SavingsGoal, DebtItem } from './types/finance';
-import { loadFinanceData, saveFinanceData } from './utils/storage';
-import { checkAndProcessMonthlyContributions } from './utils/savingsAutomation';
+import { loadFinanceData, saveFinanceData, EMPTY_FINANCE_DATA } from './utils/storage';
 import { LockScreen } from './components/LockScreen';
+import { AuthScreen } from './components/AuthScreen';
 import { Header } from './components/Header';
 import { BottomNav, AppTab } from './components/BottomNav';
 import { TransactionsScreen } from './components/TransactionsScreen';
 import { FocusScreen } from './components/FocusScreen';
 import { ManagementScreen, ManagementSubpage } from './components/ManagementScreen';
 import { ProfileModal } from './components/ProfileModal';
+import { getSupabaseClient, isSupabaseConfigured } from './lib/supabase';
+import {
+  fetchRemoteFinanceData,
+  syncTransactionRemote,
+  deleteTransactionRemote,
+  clearTransactionsRemote,
+  syncFixedExpenseRemote,
+  deleteFixedExpenseRemote,
+  syncFixedIncomeRemote,
+  deleteFixedIncomeRemote,
+  syncSavingsGoalRemote,
+  deleteSavingsGoalRemote,
+  syncDebtRemote,
+  deleteDebtRemote,
+  syncProfileRemote,
+} from './services/supabaseSync';
 
 export default function App() {
-  const [financeData, setFinanceData] = useState<FinanceData>(loadFinanceData);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [financeData, setFinanceData] = useState<FinanceData>(EMPTY_FINANCE_DATA);
   const [isLocked, setIsLocked] = useState<boolean>(true);
   const [currentTab, setCurrentTab] = useState<AppTab>('movimientos');
   const [managementSubpage, setManagementSubpage] = useState<ManagementSubpage>('fijos');
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
 
-  // Persist state changes
+  // Load finance data for a specific user ID
+  const loadUserData = useCallback(async (userId: string) => {
+    // 1. Instant optimistic load from user-scoped localStorage
+    const local = loadFinanceData(userId);
+    setFinanceData(local);
+
+    // 2. Fetch authoritative state from Supabase
+    if (isSupabaseConfigured()) {
+      try {
+        const remote = await fetchRemoteFinanceData(userId);
+        if (remote) {
+          setFinanceData(remote);
+          saveFinanceData(remote, userId);
+        }
+      } catch (err) {
+        console.warn('Silent cloud sync note:', err);
+      }
+    }
+  }, []);
+
+  // Initialize Supabase session & listen to auth state changes
   useEffect(() => {
-    saveFinanceData(financeData);
-  }, [financeData]);
+    const supabase = getSupabaseClient();
+    if (!supabase || !isSupabaseConfigured()) {
+      // Offline fallback mode
+      setAuthLoading(false);
+      setFinanceData(loadFinanceData());
+      return;
+    }
+
+    // Check existing persisted session
+    supabase.auth.getSession().then(({ data: { session: existingSession } }) => {
+      setSession(existingSession);
+      if (existingSession) {
+        loadUserData(existingSession.user.id);
+      }
+      setAuthLoading(false);
+    });
+
+    // Real-time subscription to sign-in / sign-out events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      if (currentSession) {
+        loadUserData(currentSession.user.id);
+      } else {
+        setFinanceData(EMPTY_FINANCE_DATA);
+        setIsLocked(true);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [loadUserData]);
+
+  // Persist state changes to user-scoped local storage
+  useEffect(() => {
+    if (session?.user?.id) {
+      saveFinanceData(financeData, session.user.id);
+    }
+  }, [financeData, session?.user?.id]);
 
   // Synchronize active theme with document
   const currentTheme = financeData.userProfile?.theme || 'dark';
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
   }, [currentTheme]);
+
+  const handleSignOut = async () => {
+    const supabase = getSupabaseClient();
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    setSession(null);
+    setIsLocked(true);
+    setShowProfileModal(false);
+    setFinanceData(EMPTY_FINANCE_DATA);
+  };
 
   const handleAddTransaction = (newTx: Omit<Transaction, 'id'>) => {
     const created: Transaction = {
@@ -37,6 +124,7 @@ export default function App() {
       ...prev,
       transactions: [created, ...prev.transactions],
     }));
+    syncTransactionRemote(created);
   };
 
   const handleDeleteTransaction = (id: string) => {
@@ -44,6 +132,7 @@ export default function App() {
       ...prev,
       transactions: prev.transactions.filter((t) => t.id !== id),
     }));
+    deleteTransactionRemote(id);
   };
 
   const handleEditTransaction = (updatedTx: Transaction) => {
@@ -51,14 +140,15 @@ export default function App() {
       ...prev,
       transactions: prev.transactions.map((t) => (t.id === updatedTx.id ? updatedTx : t)),
     }));
+    syncTransactionRemote(updatedTx);
   };
 
-  // Reset month: clear all variable movements (expenses and income in Movimientos)
   const handleResetMonth = () => {
     setFinanceData((prev) => ({
       ...prev,
       transactions: [],
     }));
+    clearTransactionsRemote();
   };
 
   const handleAddFixedExpense = (item: Omit<FixedExpense, 'id'>) => {
@@ -70,6 +160,7 @@ export default function App() {
       ...prev,
       fixedExpenses: [...prev.fixedExpenses, created],
     }));
+    syncFixedExpenseRemote(created);
   };
 
   const handleUpdateFixedExpense = (updated: FixedExpense) => {
@@ -77,6 +168,7 @@ export default function App() {
       ...prev,
       fixedExpenses: prev.fixedExpenses.map((f) => (f.id === updated.id ? updated : f)),
     }));
+    syncFixedExpenseRemote(updated);
   };
 
   const handleDeleteFixedExpense = (id: string) => {
@@ -84,6 +176,7 @@ export default function App() {
       ...prev,
       fixedExpenses: prev.fixedExpenses.filter((f) => f.id !== id),
     }));
+    deleteFixedExpenseRemote(id);
   };
 
   const handleAddFixedIncome = (item: Omit<FixedIncome, 'id'>) => {
@@ -101,6 +194,7 @@ export default function App() {
         baseIncome: nextBaseIncome,
       };
     });
+    syncFixedIncomeRemote(created);
   };
 
   const handleUpdateFixedIncome = (updated: FixedIncome) => {
@@ -114,6 +208,7 @@ export default function App() {
         baseIncome: nextBaseIncome,
       };
     });
+    syncFixedIncomeRemote(updated);
   };
 
   const handleDeleteFixedIncome = (id: string) => {
@@ -127,6 +222,7 @@ export default function App() {
         baseIncome: nextBaseIncome,
       };
     });
+    deleteFixedIncomeRemote(id);
   };
 
   const handleAddSavingsGoal = (
@@ -148,63 +244,65 @@ export default function App() {
       autoContributeEnabled: true,
     };
 
-    setFinanceData((prev) => {
-      let nextTransactions = prev.transactions;
-      if (shouldApplyNow) {
-        const timeStr = now.toLocaleTimeString('es-ES', {
-          hour: '2-digit',
-          minute: '2-digit',
-        });
-        const dateStr = now.toISOString().split('T')[0];
-
-        const autoTx: Transaction = {
-          id: `tx-auto-save-${goalId}-${currentMonthKey}`,
-          type: 'expense',
-          amount: monthly!,
-          concept: `Aporte mensual automático: ${item.name}`,
-          category: 'Ahorro',
-          dateStr,
-          timeStr,
-          icon: 'savings',
-          currency: '€',
-        };
-        nextTransactions = [autoTx, ...prev.transactions];
-      }
-
-      return {
-        ...prev,
-        transactions: nextTransactions,
-        savingsGoals: [...prev.savingsGoals, created],
-      };
-    });
-  };
-
-  const handleContributeSavings = (goalId: string, amount: number) => {
-    const targetGoal = financeData.savingsGoals.find((g) => g.id === goalId);
-    const goalName = targetGoal ? targetGoal.name : 'Meta de Ahorro';
-
-    setFinanceData((prev) => {
-      const now = new Date();
+    let autoTx: Transaction | null = null;
+    if (shouldApplyNow) {
       const timeStr = now.toLocaleTimeString('es-ES', {
         hour: '2-digit',
         minute: '2-digit',
       });
       const dateStr = now.toISOString().split('T')[0];
 
-      // Any contribution to savings is recorded as an expense transaction in MOVIMIENTOS,
-      // which automatically deducts from real available capital!
-      const contributionTx: Transaction = {
-        id: `tx-save-${Date.now()}`,
+      autoTx = {
+        id: `tx-auto-save-${goalId}-${currentMonthKey}`,
         type: 'expense',
-        amount,
-        concept: `Aporte a ahorro: ${goalName}`,
+        amount: monthly!,
+        concept: `Aporte mensual automático: ${item.name}`,
         category: 'Ahorro',
         dateStr,
         timeStr,
         icon: 'savings',
         currency: '€',
       };
+    }
 
+    setFinanceData((prev) => {
+      return {
+        ...prev,
+        transactions: autoTx ? [autoTx, ...prev.transactions] : prev.transactions,
+        savingsGoals: [...prev.savingsGoals, created],
+      };
+    });
+
+    syncSavingsGoalRemote(created);
+    if (autoTx) {
+      syncTransactionRemote(autoTx);
+    }
+  };
+
+  const handleContributeSavings = (goalId: string, amount: number) => {
+    const targetGoal = financeData.savingsGoals.find((g) => g.id === goalId);
+    const goalName = targetGoal ? targetGoal.name : 'Meta de Ahorro';
+
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const dateStr = now.toISOString().split('T')[0];
+
+    const contributionTx: Transaction = {
+      id: `tx-save-${Date.now()}`,
+      type: 'expense',
+      amount,
+      concept: `Aporte a ahorro: ${goalName}`,
+      category: 'Ahorro',
+      dateStr,
+      timeStr,
+      icon: 'savings',
+      currency: '€',
+    };
+
+    setFinanceData((prev) => {
       return {
         ...prev,
         transactions: [contributionTx, ...prev.transactions],
@@ -213,6 +311,14 @@ export default function App() {
         ),
       };
     });
+
+    syncTransactionRemote(contributionTx);
+    if (targetGoal) {
+      syncSavingsGoalRemote({
+        ...targetGoal,
+        currentAmount: (targetGoal.currentAmount || 0) + amount,
+      });
+    }
   };
 
   const handleDeleteSavingsGoal = (goalId: string) => {
@@ -220,6 +326,7 @@ export default function App() {
       ...prev,
       savingsGoals: prev.savingsGoals.filter((g) => g.id !== goalId),
     }));
+    deleteSavingsGoalRemote(goalId);
   };
 
   const handleUpdateSavingsGoal = (updatedGoal: SavingsGoal) => {
@@ -227,34 +334,33 @@ export default function App() {
       ...prev,
       savingsGoals: prev.savingsGoals.map((g) => (g.id === updatedGoal.id ? updatedGoal : g)),
     }));
+    syncSavingsGoalRemote(updatedGoal);
   };
 
   const handleAmortizeDebt = (debtId: string, amount: number) => {
     const targetDebt = financeData.debts.find((d) => d.id === debtId);
     const debtName = targetDebt ? targetDebt.name : 'Deuda';
 
-    // 1. Update debt amortized amount
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('es-ES', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const dateStr = now.toISOString().split('T')[0];
+
+    const amortizationTx: Transaction = {
+      id: `tx-${Date.now()}`,
+      type: 'expense',
+      amount,
+      concept: `Amortización deuda: ${debtName}`,
+      category: 'Deuda / Amortización',
+      dateStr,
+      timeStr,
+      icon: 'trending_down',
+      currency: '€',
+    };
+
     setFinanceData((prev) => {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('es-ES', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      const dateStr = now.toISOString().split('T')[0];
-
-      // 2. Add amortization transaction to MOVIMIENTOS as "expense"
-      const amortizationTx: Transaction = {
-        id: `tx-${Date.now()}`,
-        type: 'expense',
-        amount,
-        concept: `Amortización deuda: ${debtName}`,
-        category: 'Deuda / Amortización',
-        dateStr,
-        timeStr,
-        icon: 'trending_down',
-        currency: '€',
-      };
-
       return {
         ...prev,
         transactions: [amortizationTx, ...prev.transactions],
@@ -268,6 +374,14 @@ export default function App() {
         ),
       };
     });
+
+    syncTransactionRemote(amortizationTx);
+    if (targetDebt) {
+      syncDebtRemote({
+        ...targetDebt,
+        amortizedAmount: Math.min(targetDebt.initialAmount, (targetDebt.amortizedAmount || 0) + amount),
+      });
+    }
   };
 
   const handleUpdateProfile = (updatedProfile: NonNullable<FinanceData['userProfile']>) => {
@@ -275,6 +389,7 @@ export default function App() {
       ...prev,
       userProfile: updatedProfile,
     }));
+    syncProfileRemote(updatedProfile, financeData.pinCode, financeData.currency, financeData.baseIncome);
   };
 
   const handleAddDebt = (debt: Omit<DebtItem, 'id'>) => {
@@ -286,6 +401,7 @@ export default function App() {
       ...prev,
       debts: [...prev.debts, created],
     }));
+    syncDebtRemote(created);
   };
 
   const handleDeleteDebt = (debtId: string) => {
@@ -293,6 +409,7 @@ export default function App() {
       ...prev,
       debts: prev.debts.filter((d) => d.id !== debtId),
     }));
+    deleteDebtRemote(debtId);
   };
 
   const handleUpdateDebt = (updatedDebt: DebtItem) => {
@@ -300,6 +417,7 @@ export default function App() {
       ...prev,
       debts: prev.debts.map((d) => (d.id === updatedDebt.id ? updatedDebt : d)),
     }));
+    syncDebtRemote(updatedDebt);
   };
 
   const handleUpdatePin = (newPin: string) => {
@@ -307,9 +425,11 @@ export default function App() {
       ...prev,
       pinCode: newPin,
     }));
+    if (financeData.userProfile) {
+      syncProfileRemote(financeData.userProfile, newPin, financeData.currency, financeData.baseIncome);
+    }
   };
 
-  // Header Title based on active tab and subpage
   const getHeaderTitle = () => {
     switch (currentTab) {
       case 'movimientos':
@@ -325,18 +445,42 @@ export default function App() {
     }
   };
 
-  // If locked, render Secure PIN Lock Screen
+  // 1. Initial Auth Loading Splash
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#0b1326] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-16 h-16 rounded-2xl overflow-hidden ring-2 ring-[#4edea3]/30 shadow-lg bg-[#131b2e] flex items-center justify-center">
+            <img src="/icon-192.png" alt="Loading" className="w-full h-full object-cover" />
+          </div>
+          <span className="material-symbols-outlined text-[#4edea3] text-2xl animate-spin">
+            progress_activity
+          </span>
+          <span className="text-xs text-[#bbcabf] font-mono tracking-wide">Cargando CapitalFocus...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Unauthenticated User Screen
+  if (!session) {
+    return <AuthScreen onAuthenticated={() => {}} />;
+  }
+
+  // 3. Authenticated but Locked Screen
   if (isLocked) {
     return (
       <LockScreen
-        storedPin={financeData.pinCode}
+        storedPin={financeData.pinCode || '1234'}
         onUnlocked={() => setIsLocked(false)}
         onUpdatePin={handleUpdatePin}
         userAvatarUrl={financeData.userProfile?.avatarUrl}
+        onSignOut={handleSignOut}
       />
     );
   }
 
+  // 4. Main Application Workspace
   return (
     <div className="min-h-screen bg-[#0b1326] text-[#dae2fd] flex flex-col font-sans select-none antialiased">
       {/* Top Header */}
@@ -390,9 +534,6 @@ export default function App() {
         currentTab={currentTab}
         onTabChange={(tab) => {
           setCurrentTab(tab);
-          if (tab === 'gestion' && managementSubpage === 'fijos') {
-            // keep current subpage
-          }
         }}
       />
 
@@ -401,15 +542,17 @@ export default function App() {
         <ProfileModal
           profile={
             financeData.userProfile || {
-              name: 'Lucas Collazo',
-              email: 'collazolucas@gmail.com',
+              name: session.user.user_metadata?.full_name || 'Usuario',
+              email: session.user.email || '',
               avatarUrl:
                 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=160&q=80',
               bio: 'Gestión patrimonial & finanzas personales',
+              theme: 'dark',
             }
           }
           onSaveProfile={handleUpdateProfile}
           onClose={() => setShowProfileModal(false)}
+          onSignOut={handleSignOut}
         />
       )}
     </div>

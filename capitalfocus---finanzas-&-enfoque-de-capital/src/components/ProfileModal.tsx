@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserProfile, ThemeMode } from '../types/finance';
 import { playSuccessChime, triggerHaptic, playKeypadTone } from '../utils/feedback';
 
@@ -6,6 +6,7 @@ interface ProfileModalProps {
   profile: UserProfile;
   onSaveProfile: (updated: UserProfile) => void;
   onClose: () => void;
+  onSignOut?: () => void;
 }
 
 const AVATAR_PRESETS = [
@@ -70,6 +71,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   profile,
   onSaveProfile,
   onClose,
+  onSignOut,
 }) => {
   const [name, setName] = useState(profile.name || 'Lucas Collazo');
   const [email, setEmail] = useState(profile.email || 'collazolucas@gmail.com');
@@ -77,6 +79,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || AVATAR_PRESETS[0]);
   const [customAvatarInput, setCustomAvatarInput] = useState('');
   const [theme, setTheme] = useState<ThemeMode>(profile.theme || 'dark');
+
+  // Ensure no sensitive Supabase config remains in client localStorage
+  useEffect(() => {
+    try {
+      localStorage.removeItem('capitalfocus_supabase_config_v1');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleSelectTheme = (selectedTheme: ThemeMode) => {
     setTheme(selectedTheme);
@@ -86,7 +97,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   };
 
   const handleClose = () => {
-    // Revert to saved profile theme if user previewed without saving
     document.documentElement.setAttribute('data-theme', profile.theme || 'dark');
     onClose();
   };
@@ -143,7 +153,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
           <button
             type="button"
             onClick={handleClose}
-            className="w-8 h-8 rounded-full bg-[#222a3d] hover:bg-[#2d3449] text-[#bbcabf] hover:text-white flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-full bg-[#222a3d] hover:bg-[#2d3449] text-[#bbcabf] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
           </button>
@@ -158,7 +168,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 alt="Avatar"
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  // Fallback if image fails to load
                   (e.target as HTMLImageElement).src = AVATAR_PRESETS[0];
                 }}
               />
@@ -196,7 +205,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                   playKeypadTone(500 + idx * 50, 15);
                   triggerHaptic(8);
                 }}
-                className={`w-11 h-11 rounded-full overflow-hidden flex-shrink-0 transition-all border-2 ${
+                className={`w-11 h-11 rounded-full overflow-hidden flex-shrink-0 transition-all border-2 cursor-pointer ${
                   avatarUrl === preset
                     ? 'border-[#4edea3] scale-105 shadow-[0_0_10px_rgba(78,222,163,0.5)]'
                     : 'border-white/10 opacity-70 hover:opacity-100'
@@ -257,7 +266,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               <button
                 type="button"
                 onClick={handleCustomAvatarSubmit}
-                className="px-3 py-2 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-[#4edea3]"
+                className="px-3 py-2 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-[#4edea3] cursor-pointer"
               >
                 Cargar
               </button>
@@ -294,7 +303,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                         : 'border-white/10 bg-[#0b1326] hover:bg-[#1b2233]'
                     }`}
                   >
-                    {/* Visual Color Palette Preview Swatch */}
                     <div className="flex items-center justify-between">
                       <div
                         className="w-10 h-6 rounded-lg border border-white/10 overflow-hidden flex p-0.5 gap-0.5 shadow-inner"
@@ -342,17 +350,32 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 py-2.5 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-white transition-colors"
+              className="flex-1 py-2.5 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-white transition-colors cursor-pointer"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="flex-1 py-2.5 rounded-xl bg-[#4edea3] hover:bg-[#45caa2] text-[#003824] text-xs font-bold shadow-lg transition-all active:scale-95"
+              className="flex-1 py-2.5 rounded-xl bg-[#4edea3] hover:bg-[#45caa2] text-[#003824] text-xs font-bold shadow-lg transition-all active:scale-95 cursor-pointer"
             >
               Guardar Perfil
             </button>
           </div>
+
+          {onSignOut && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(20);
+                playKeypadTone(350, 40);
+                onSignOut();
+              }}
+              className="w-full py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer mt-1"
+            >
+              <span className="material-symbols-outlined text-[17px]">logout</span>
+              Cerrar Sesión
+            </button>
+          )}
         </form>
       </div>
     </div>

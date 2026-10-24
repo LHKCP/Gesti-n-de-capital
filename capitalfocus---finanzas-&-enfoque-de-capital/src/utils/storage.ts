@@ -194,12 +194,45 @@ export const INITIAL_DATA: FinanceData = {
   ],
 };
 
-export function loadFinanceData(): FinanceData {
+export const EMPTY_FINANCE_DATA: FinanceData = {
+  currency: '€',
+  baseIncome: 0,
+  pinCode: '1234',
+  userProfile: {
+    name: 'Usuario',
+    email: '',
+    avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=160&q=80',
+    bio: 'Gestión patrimonial & finanzas personales',
+    theme: 'dark',
+  },
+  customCategories: [
+    { name: 'Supermercado', icon: 'local_grocery_store' },
+    { name: 'Cafetería', icon: 'coffee' },
+    { name: 'Transporte', icon: 'directions_subway' },
+    { name: 'Restaurante', icon: 'restaurant' },
+    { name: 'Farmacia', icon: 'medication' },
+    { name: 'Ocio', icon: 'sports_esports' },
+    { name: 'Hogar', icon: 'home' },
+  ],
+  transactions: [],
+  fixedExpenses: [],
+  fixedIncomes: [],
+  savingsGoals: [],
+  debts: [],
+};
+
+export function getStorageKey(userId?: string): string {
+  return userId ? `capitalfocus_state_${userId}` : STORAGE_KEY;
+}
+
+export function loadFinanceData(userId?: string): FinanceData {
+  const fallback = userId ? EMPTY_FINANCE_DATA : INITIAL_DATA;
+  const key = getStorageKey(userId);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return INITIAL_DATA;
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    const loaded = { ...INITIAL_DATA, ...parsed, currency: '€' as const };
+    const loaded = { ...fallback, ...parsed, currency: '€' as const };
     if (!loaded.pinCode || loaded.pinCode.length !== 4) {
       loaded.pinCode = loaded.pinCode && loaded.pinCode.length >= 4 ? loaded.pinCode.slice(0, 4) : '1234';
     }
@@ -210,34 +243,51 @@ export function loadFinanceData(): FinanceData {
       }));
     }
 
-    if (!Array.isArray(loaded.fixedIncomes) || loaded.fixedIncomes.length === 0) {
-      loaded.fixedIncomes = INITIAL_DATA.fixedIncomes;
+    if (userId) {
+      // Don't inject demo incomes for authenticated users if they have none
+      if (!Array.isArray(loaded.fixedIncomes)) {
+        loaded.fixedIncomes = [];
+      }
+    } else {
+      if (!Array.isArray(loaded.fixedIncomes) || loaded.fixedIncomes.length === 0) {
+        loaded.fixedIncomes = INITIAL_DATA.fixedIncomes;
+      }
     }
 
     // Keep baseIncome updated to sum of fixed incomes
-    if (Array.isArray(loaded.fixedIncomes)) {
+    if (Array.isArray(loaded.fixedIncomes) && loaded.fixedIncomes.length > 0) {
       loaded.baseIncome = loaded.fixedIncomes.reduce((sum: number, inc: any) => sum + (inc.amount || 0), 0);
     }
 
     const { updatedData, executedCount } = checkAndProcessMonthlyContributions(loaded);
     if (executedCount > 0) {
-      saveFinanceData(updatedData);
+      saveFinanceData(updatedData, userId);
       return updatedData;
     }
     return loaded;
   } catch {
-    const { updatedData, executedCount } = checkAndProcessMonthlyContributions(INITIAL_DATA);
+    const { updatedData, executedCount } = checkAndProcessMonthlyContributions(fallback);
     if (executedCount > 0) {
-      saveFinanceData(updatedData);
+      saveFinanceData(updatedData, userId);
       return updatedData;
     }
-    return INITIAL_DATA;
+    return fallback;
   }
 }
 
-export function saveFinanceData(data: FinanceData): void {
+export function saveFinanceData(data: FinanceData, userId?: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    const key = getStorageKey(userId);
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
+export function clearLocalFinanceData(userId?: string): void {
+  try {
+    const key = getStorageKey(userId);
+    localStorage.removeItem(key);
   } catch {
     // ignore
   }

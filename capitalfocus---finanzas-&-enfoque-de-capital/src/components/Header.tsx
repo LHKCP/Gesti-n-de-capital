@@ -25,11 +25,8 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Brand & Subtitle */}
         <div className="flex items-center gap-2.5">
           {/* Logo icon container */}
-          <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#4edea3] shadow-sm relative overflow-hidden border border-white/10">
-            <span className="material-symbols-outlined text-[20px] font-bold">
-              account_balance_wallet
-            </span>
-            <div className="absolute inset-0 bg-gradient-to-tr from-[#4edea3]/20 via-transparent to-transparent pointer-events-none" />
+          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-sm relative border border-white/10 bg-[#0b1326]">
+            <img src="/icon-192.png" alt="CapitalFocus" className="w-full h-full object-cover" />
           </div>
 
           <div className="flex flex-col">
@@ -44,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Actions & Profile */}
         <div className="flex items-center gap-2">
-          {/* Fixed Euro currency indicator */}
+          {/* Currency indicator */}
           <div className="flex items-center bg-[#171f33] px-2.5 py-1 rounded-full border border-white/5 shadow-inner">
             <span className="font-num text-xs text-[#4edea3] font-bold tracking-wider">
               EUR (€)
@@ -61,7 +58,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="material-symbols-outlined text-[17px]">lock</span>
           </button>
 
-          {/* Profile Avatar with Live dot - Clickable to open Profile */}
+          {/* Profile Avatar */}
           <button
             type="button"
             onClick={onOpenProfile}
@@ -75,7 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <span
               className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-[#4edea3] ring-2 ring-[#0b1326]"
-              title="Enclave Cifrado & Sincronizado"
             />
           </button>
         </div>
@@ -83,4 +79,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

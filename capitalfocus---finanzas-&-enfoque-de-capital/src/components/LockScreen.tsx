@@ -6,6 +6,7 @@ interface LockScreenProps {
   onUnlocked: () => void;
   onUpdatePin: (newPin: string) => void;
   userAvatarUrl?: string;
+  onSignOut?: () => void;
 }
 
 export const LockScreen: React.FC<LockScreenProps> = ({
@@ -13,6 +14,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   onUnlocked,
   onUpdatePin,
   userAvatarUrl,
+  onSignOut,
 }) => {
   const [enteredPin, setEnteredPin] = useState<string>('');
   const [feedbackMsg, setFeedbackMsg] = useState<string>('Esperando entrada de PIN');
@@ -110,8 +112,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
       {/* Top Header bar */}
       <div className="w-full max-w-md pt-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#4edea3]">
-            <span className="material-symbols-outlined text-[19px]">account_balance_wallet</span>
+          <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center border border-white/10 bg-[#0b1326]">
+            <img src="/icon-192.png" alt="CapitalFocus" className="w-full h-full object-cover" />
           </div>
           <div className="flex flex-col">
             <span className="font-sans text-[16px] font-bold tracking-tight">CapitalFocus</span>
@@ -278,10 +280,21 @@ export const LockScreen: React.FC<LockScreenProps> = ({
         <button
           type="button"
           onClick={() => setShowRecoveryModal(true)}
-          className="font-sans text-[13px] text-[#c0c1ff] hover:text-[#4edea3] transition-colors font-medium underline-offset-4 hover:underline"
+          className="font-sans text-[13px] text-[#c0c1ff] hover:text-[#4edea3] transition-colors font-medium underline-offset-4 hover:underline cursor-pointer"
         >
           Opciones de Recuperación / Reset de Código
         </button>
+
+        {onSignOut && (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="font-sans text-[12px] text-[#bbcabf] hover:text-red-400 transition-colors flex items-center gap-1 cursor-pointer py-1"
+          >
+            <span className="material-symbols-outlined text-[15px]">logout</span>
+            <span>Cerrar sesión / Cambiar de cuenta</span>
+          </button>
+        )}
 
         <div className="flex items-center justify-center gap-1.5 text-[#bbcabf]/80 text-[11px] font-num uppercase tracking-wider">
           <span className="material-symbols-outlined text-[15px] text-[#4edea3]">verified_user</span>
