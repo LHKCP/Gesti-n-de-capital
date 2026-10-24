@@ -2075,14 +2075,13 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
                 <input
                   type="number"
                   step="any"
-                  required
-                  placeholder="0.00"
+                  placeholder="0 (dejar vacío = 0)"
                   value={editGoalCurrent}
                   onChange={(e) => setEditGoalCurrent(e.target.value)}
                   className="w-full mt-1 bg-[#0b1326] border border-white/10 rounded-xl px-3 py-2 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
                 />
                 <span className="text-[11px] text-[#86948a] mt-1 block">
-                  Modifica directamente el importe ahorrado si te equivocaste o deseas corregir el saldo acumulado.
+                  Puedes borrarlo o dejarlo vacío si quieres dejar el total acumulado a 0.
                 </span>
               </div>
 
