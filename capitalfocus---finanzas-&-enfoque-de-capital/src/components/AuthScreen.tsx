@@ -17,7 +17,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const supabase = getSupabaseClient();
+  const getClient = () => getSupabaseClient();
 
   const handleModeChange = (newMode: 'signin' | 'signup' | 'forgot') => {
     setErrorMsg(null);
@@ -29,6 +29,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    const supabase = getClient();
     if (!supabase) {
       setErrorMsg('Servicio de autenticación no inicializado.');
       return;
@@ -69,6 +70,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    const supabase = getClient();
     if (!supabase) {
       setErrorMsg('Servicio de autenticación no inicializado.');
       return;
@@ -139,6 +141,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    const supabase = getClient();
     if (!supabase) return;
     if (!email) {
       setErrorMsg('Ingresa tu correo para recibir las instrucciones de recuperación.');
