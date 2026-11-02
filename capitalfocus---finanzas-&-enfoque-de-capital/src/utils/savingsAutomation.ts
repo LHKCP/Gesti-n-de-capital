@@ -1,7 +1,7 @@
 import { FinanceData, SavingsGoal, Transaction } from '../types/finance';
 
 /**
- * Returns the current year and month formatted as "YYYY-MM" (e.g., "2026-10")
+ * Returns the current year and month formatted as "YYYY-MM" (e.g., "2026-11")
  */
 export function getCurrentMonthKey(d: Date = new Date()): string {
   const year = d.getFullYear();
@@ -29,6 +29,7 @@ export function getCurrentMonthName(d: Date = new Date()): string {
 
 export interface MonthlyAutomationResult {
   updatedData: FinanceData;
+  updatedGoals: SavingsGoal[];
   executedCount: number;
   totalContributed: number;
   newTransactions: Transaction[];
@@ -36,17 +37,18 @@ export interface MonthlyAutomationResult {
 
 /**
  * Checks all savings goals with an active monthly contribution.
- * If a goal has not contributed yet for the current month, this creates an automated expense transaction
- * in Movimientos (which deducts directly from Capital Disponible Real) and increases the goal's accumulated amount.
+ * If a goal has not contributed yet for the current month, this automatically increments
+ * the goal's accumulated amount (currentAmount += monthlyContribution) and creates an automated
+ * transaction with category 'Ahorro' so it is discounted in FOCO.
  */
 export function checkAndProcessMonthlyContributions(data: FinanceData): MonthlyAutomationResult {
   const currentMonthKey = getCurrentMonthKey();
-  const currentMonthName = getCurrentMonthName();
   const newTransactions: Transaction[] = [];
+  const updatedGoalsList: SavingsGoal[] = [];
   let executedCount = 0;
   let totalContributed = 0;
 
-  const updatedGoals: SavingsGoal[] = data.savingsGoals.map((goal) => {
+  const updatedGoals: SavingsGoal[] = (data.savingsGoals || []).map((goal) => {
     const monthly = goal.monthlyContribution;
     const isAutoActive = goal.autoContributeEnabled !== false;
 
@@ -71,7 +73,9 @@ export function checkAndProcessMonthlyContributions(data: FinanceData): MonthlyA
     if (alreadyProcessedInTx || alreadyMarkedInGoal) {
       // Already contributed for this month
       if (goal.lastContributionMonth !== currentMonthKey) {
-        return { ...goal, lastContributionMonth: currentMonthKey };
+        const fixedGoal = { ...goal, lastContributionMonth: currentMonthKey };
+        updatedGoalsList.push(fixedGoal);
+        return fixedGoal;
       }
       return goal;
     }
@@ -94,17 +98,20 @@ export function checkAndProcessMonthlyContributions(data: FinanceData): MonthlyA
 
     newTransactions.push(autoTx);
 
-    return {
+    const updatedGoal: SavingsGoal = {
       ...goal,
       currentAmount: (goal.currentAmount || 0) + monthly,
       lastContributionMonth: currentMonthKey,
       autoContributeEnabled: true,
     };
+    updatedGoalsList.push(updatedGoal);
+    return updatedGoal;
   });
 
-  if (executedCount === 0) {
+  if (executedCount === 0 && updatedGoalsList.length === 0) {
     return {
       updatedData: data,
+      updatedGoals: [],
       executedCount: 0,
       totalContributed: 0,
       newTransactions: [],
@@ -119,6 +126,7 @@ export function checkAndProcessMonthlyContributions(data: FinanceData): MonthlyA
 
   return {
     updatedData,
+    updatedGoals: updatedGoalsList,
     executedCount,
     totalContributed,
     newTransactions,

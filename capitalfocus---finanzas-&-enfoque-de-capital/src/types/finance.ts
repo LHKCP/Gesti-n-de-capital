@@ -1,4 +1,4 @@
-export type Currency = '€';
+﻿export type Currency = '€';
 
 export interface Transaction {
   id: string;

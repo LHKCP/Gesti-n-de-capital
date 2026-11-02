@@ -56,21 +56,77 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
     return activeFixedExpenses.reduce((sum, item) => sum + item.amount, 0);
   }, [activeFixedExpenses]);
 
+  // Variable movements check (excludes Ahorro and Deuda/Amortización as requested)
+  const isVariableMovement = (t: { category?: string; concept?: string }) => {
+    const cat = (t.category || '').toLowerCase();
+    const concept = (t.concept || '').toLowerCase();
+    if (cat.includes('ahorro') || cat.includes('deuda') || cat.includes('amortiz')) {
+      return false;
+    }
+    if (
+      concept.includes('aporte a ahorro') ||
+      concept.includes('aporte mensual') ||
+      concept.includes('amortización deuda') ||
+      concept.includes('amortizacion deuda')
+    ) {
+      return false;
+    }
+    return true;
+  };
+
   const totalMovementsExpenses = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'expense')
+      .filter((t) => t.type === 'expense' && isVariableMovement(t))
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
   const totalMovementsIncome = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'income')
+      .filter((t) => t.type === 'income' && isVariableMovement(t))
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
-  const totalSavingsDeducted = useMemo(() => {
+  // Automated monthly contribution from active savings goals
+  const activeSavingsMonthlyTotal = useMemo(() => {
+    return (data.savingsGoals || [])
+      .filter((g) => g.autoContributeEnabled !== false && (g.monthlyContribution || 0) > 0)
+      .reduce((sum, g) => sum + (g.monthlyContribution || 0), 0);
+  }, [data.savingsGoals]);
+
+  // Actual savings transactions (both automated and manual contributions)
+  const savingsTransactionsTotal = useMemo(() => {
     return transactions
-      .filter((t) => t.category === 'Ahorro' && t.type === 'expense')
+      .filter((t) => {
+        const cat = (t.category || '').toLowerCase();
+        const concept = (t.concept || '').toLowerCase();
+        return (
+          t.type === 'expense' &&
+          (cat.includes('ahorro') || concept.includes('aporte a ahorro') || concept.includes('aporte mensual'))
+        );
+      })
+      .reduce((sum, t) => sum + t.amount, 0);
+  }, [transactions]);
+
+  // Total savings deducted in FOCO for this month:
+  // Includes active automated monthly savings plus any manual savings contributions
+  const totalSavingsDeducted = useMemo(() => {
+    return Math.max(savingsTransactionsTotal, activeSavingsMonthlyTotal);
+  }, [savingsTransactionsTotal, activeSavingsMonthlyTotal]);
+
+  // Total debt amortizations deducted in FOCO for this month
+  const totalDebtDeducted = useMemo(() => {
+    return transactions
+      .filter((t) => {
+        const cat = (t.category || '').toLowerCase();
+        const concept = (t.concept || '').toLowerCase();
+        return (
+          t.type === 'expense' &&
+          (cat.includes('deuda') ||
+            cat.includes('amortiz') ||
+            concept.includes('amortización') ||
+            concept.includes('amortizacion'))
+        );
+      })
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
@@ -78,9 +134,9 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
   const totalNetIncome = totalFixedIncome + totalMovementsIncome;
 
   // Capital Disponible Real:
-  // (Ingresos Fijos + Ingresos de Movimientos) - Gastos Fijos - Gastos de Movimientos (incluyendo aportes a ahorro)
+  // (Ingresos Fijos + Ingresos de Movimientos) - Gastos Fijos - Gastos Variables - Ahorro - Amortizaciones de Deuda
   const realAvailableCapital =
-    totalNetIncome - totalFixed - totalMovementsExpenses;
+    totalNetIncome - totalFixed - totalMovementsExpenses - totalSavingsDeducted - totalDebtDeducted;
 
   // Remaining days in month
   const now = new Date();
@@ -219,7 +275,7 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
           </div>
 
           <p className="font-sans text-xs text-[#bbcabf] leading-relaxed">
-            Dinero disponible real calculado en tiempo real: incluye los ingresos fijos y los ingresos de movimientos, descontando el 100% de gastos fijos y todos los gastos y aportes a ahorro registrados en Movimientos.
+            Dinero disponible real calculado en tiempo real: incluye ingresos fijos y variables, descontando el 100% de gastos fijos, gastos variables de movimientos, metas de ahorro y amortizaciones de deuda.
           </p>
 
           {/* Micro badges de balance directo */}
@@ -236,12 +292,18 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
               </span>
             )}
             <span className="px-2 py-0.5 rounded-md bg-[#222a3d] text-[#bbcabf] border border-white/5">
-              Mov. Gastos: <strong className="text-[#ffb2b7] font-semibold">-{currency}{totalMovementsExpenses.toFixed(2)}</strong>
+              Mov. Variables: <strong className="text-[#ffb2b7] font-semibold">-{currency}{totalMovementsExpenses.toFixed(2)}</strong>
             </span>
             {totalSavingsDeducted > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-[#222a3d] text-[#4edea3] border border-[#4edea3]/20 flex items-center gap-1">
                 <span className="material-symbols-outlined text-[12px]">savings</span>
                 Ahorro: <strong className="text-[#4edea3] font-semibold">-{currency}{totalSavingsDeducted.toFixed(2)}</strong>
+              </span>
+            )}
+            {totalDebtDeducted > 0 && (
+              <span className="px-2 py-0.5 rounded-md bg-[#222a3d] text-[#c0c1ff] border border-[#c0c1ff]/20 flex items-center gap-1">
+                <span className="material-symbols-outlined text-[12px]">trending_down</span>
+                Amort. Deuda: <strong className="text-[#c0c1ff] font-semibold">-{currency}{totalDebtDeducted.toFixed(2)}</strong>
               </span>
             )}
           </div>
@@ -454,20 +516,20 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
         {/* Fila 4: Gastos Registrados en Movimientos */}
         <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-[#131b2e] border border-white/5">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#86948a] shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#ffb2b7] shrink-0">
               <span className="material-symbols-outlined text-[17px]">shopping_bag</span>
             </div>
             <div className="flex flex-col min-w-0">
               <span className="font-sans text-sm text-white font-semibold truncate">
-                Gastos en Movimientos
+                Gastos Variables en Movimientos
               </span>
               <span className="font-sans text-[11px] text-[#bbcabf]">
-                Supermercado, cafetería, ocio, compras
+                Supermercado, cafetería, ocio, transporte...
               </span>
             </div>
           </div>
           <div className="text-right shrink-0">
-            <span className="font-num text-sm text-[#bbcabf] font-bold">
+            <span className="font-num text-sm text-[#ffb2b7] font-bold">
               -{currency}{' '}
               {totalMovementsExpenses.toLocaleString('es-ES', {
                 minimumFractionDigits: 2,
@@ -476,6 +538,62 @@ export const FocusScreen: React.FC<FocusScreenProps> = ({ data }) => {
             </span>
           </div>
         </div>
+
+        {/* Fila 5: Ahorro Programado y Aportes */}
+        {totalSavingsDeducted > 0 && (
+          <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-[#131b2e] border border-white/5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#4edea3] shrink-0">
+                <span className="material-symbols-outlined text-[17px]">savings</span>
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-sans text-sm text-white font-semibold truncate">
+                  Ahorro y Metas de Capital
+                </span>
+                <span className="font-sans text-[11px] text-[#bbcabf]">
+                  Aporte mensual automático y aportes extraordinarios
+                </span>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="font-num text-sm text-[#4edea3] font-bold">
+                -{currency}{' '}
+                {totalSavingsDeducted.toLocaleString('es-ES', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Fila 6: Amortización de Deuda */}
+        {totalDebtDeducted > 0 && (
+          <div className="flex items-center justify-between py-2 px-3 rounded-xl bg-[#131b2e] border border-white/5">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#222a3d] flex items-center justify-center text-[#c0c1ff] shrink-0">
+                <span className="material-symbols-outlined text-[17px]">trending_down</span>
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="font-sans text-sm text-white font-semibold truncate">
+                  Amortización de Deudas
+                </span>
+                <span className="font-sans text-[11px] text-[#bbcabf]">
+                  Amortizaciones registradas en el apartado de deuda
+                </span>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <span className="font-num text-sm text-[#c0c1ff] font-bold">
+                -{currency}{' '}
+                {totalDebtDeducted.toLocaleString('es-ES', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Micro-estado de Serenidad Nórdica */}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { FinanceData, Transaction, FixedExpense, FixedIncome, SavingsGoal, DebtItem } from './types/finance';
 import { loadFinanceData, saveFinanceData, EMPTY_FINANCE_DATA } from './utils/storage';
+import { checkAndProcessMonthlyContributions } from './utils/savingsAutomation';
 import { LockScreen } from './components/LockScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { Header } from './components/Header';
@@ -47,8 +48,21 @@ export default function App() {
       try {
         const remote = await fetchRemoteFinanceData(userId);
         if (remote) {
-          setFinanceData(remote);
-          saveFinanceData(remote, userId);
+          // Process month rollover / automated savings contributions (e.g. November 1st)
+          const { updatedData, executedCount, updatedGoals, newTransactions } =
+            checkAndProcessMonthlyContributions(remote);
+          setFinanceData(updatedData);
+          saveFinanceData(updatedData, userId);
+
+          // Synchronize back to Supabase any automated contributions performed
+          if (executedCount > 0) {
+            for (const goal of updatedGoals) {
+              syncSavingsGoalRemote(goal);
+            }
+            for (const tx of newTransactions) {
+              syncTransactionRemote(tx);
+            }
+          }
         }
       } catch (err) {
         console.warn('Silent cloud sync note:', err);
@@ -104,6 +118,26 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', currentTheme);
   }, [currentTheme]);
 
+  // Automated month-rollover check (e.g. November 1st auto savings increment)
+  useEffect(() => {
+    if (!financeData.savingsGoals || financeData.savingsGoals.length === 0) return;
+    const { updatedData, executedCount, updatedGoals, newTransactions } =
+      checkAndProcessMonthlyContributions(financeData);
+
+    if (executedCount > 0) {
+      setFinanceData(updatedData);
+      if (session?.user?.id) {
+        saveFinanceData(updatedData, session.user.id);
+      }
+      for (const goal of updatedGoals) {
+        syncSavingsGoalRemote(goal);
+      }
+      for (const tx of newTransactions) {
+        syncTransactionRemote(tx);
+      }
+    }
+  }, [financeData.savingsGoals, session?.user?.id]);
+
   const handleSignOut = async () => {
     const supabase = getSupabaseClient();
     if (supabase) {
@@ -144,11 +178,29 @@ export default function App() {
   };
 
   const handleResetMonth = () => {
-    setFinanceData((prev) => ({
-      ...prev,
-      transactions: [],
-    }));
-    clearTransactionsRemote();
+    // Only remove variable movements; keep savings contributions and debt amortizations for FOCO
+    setFinanceData((prev) => {
+      const nonVariableTx = prev.transactions.filter(
+        (t) =>
+          t.category === 'Ahorro' ||
+          t.category === 'Deuda / Amortización' ||
+          (t.category && t.category.toLowerCase().includes('ahorro')) ||
+          (t.category && t.category.toLowerCase().includes('deuda'))
+      );
+      return {
+        ...prev,
+        transactions: nonVariableTx,
+      };
+    });
+
+    financeData.transactions
+      .filter(
+        (t) =>
+          !t.category?.toLowerCase().includes('ahorro') &&
+          !t.category?.toLowerCase().includes('deuda') &&
+          !t.category?.toLowerCase().includes('amortiz')
+      )
+      .forEach((t) => deleteTransactionRemote(t.id));
   };
 
   const handleAddFixedExpense = (item: Omit<FixedExpense, 'id'>) => {

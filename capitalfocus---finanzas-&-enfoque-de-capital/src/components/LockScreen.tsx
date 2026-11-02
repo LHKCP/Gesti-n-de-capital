@@ -22,7 +22,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
   const [isShaking, setIsShaking] = useState<boolean>(false);
   const [showRecoveryModal, setShowRecoveryModal] = useState<boolean>(false);
   const [newPinInput, setNewPinInput] = useState<string>('');
-  const [biometricScanning, setBiometricScanning] = useState<boolean>(false);
 
   const maxDigits = 4;
 
@@ -77,23 +76,6 @@ export const LockScreen: React.FC<LockScreenProps> = ({
     );
   };
 
-  const handleBiometrics = () => {
-    setBiometricScanning(true);
-    playKeypadTone(700, 40);
-    triggerHaptic(15);
-    setFeedbackMsg('Escaneando biometría local...');
-
-    setTimeout(() => {
-      setBiometricScanning(false);
-      playSuccessChime();
-      triggerHaptic(30);
-      setEnteredPin(storedPin);
-      setFeedbackMsg('Biometría verificada ✓ Acceso concedido');
-      setTimeout(() => {
-        onUnlocked();
-      }, 400);
-    }, 750);
-  };
 
   const handleResetPinSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,7 +139,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({
 
         {/* Security Subtitle and Title */}
         <span className="font-num text-[11px] text-[#4edea3] uppercase tracking-widest font-semibold mb-1">
-          Seguridad Biométrica y Cifrado Local
+          Bóveda Segura y Cifrado Local
         </span>
         <h1 className="font-sans text-[24px] text-[#dae2fd] font-bold tracking-tight">
           Ingresa tu código PIN
@@ -226,25 +208,8 @@ export const LockScreen: React.FC<LockScreenProps> = ({
             </button>
           ))}
 
-          {/* Biometrics Action */}
-          <button
-            type="button"
-            onClick={handleBiometrics}
-            className={`flex flex-col items-center justify-center w-18 h-18 rounded-full bg-[#131b2e] hover:bg-[#171f33] text-[#4edea3] active:scale-90 border border-white/5 transition-all shadow-md focus:outline-none ${
-              biometricScanning ? 'ring-2 ring-[#4edea3] animate-pulse' : ''
-            }`}
-            title="Autenticación Biométrica"
-          >
-            <span
-              className="material-symbols-outlined text-[26px]"
-              style={{ fontVariationSettings: "'FILL' 1" }}
-            >
-              fingerprint
-            </span>
-            <span className="font-num text-[8px] uppercase tracking-tighter text-[#bbcabf] mt-0.5">
-              Biometría
-            </span>
-          </button>
+          {/* Spacer for keypad grid symmetry */}
+          <div className="w-18 h-18" />
 
           {/* Digit 0 */}
           <button

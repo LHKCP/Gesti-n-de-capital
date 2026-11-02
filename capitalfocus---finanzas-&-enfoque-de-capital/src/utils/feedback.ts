@@ -1,4 +1,4 @@
-import confetti from 'canvas-confetti';
+﻿import confetti from 'canvas-confetti';
 
 // Audio context for haptic-like sound feedback on web
 let audioCtx: AudioContext | null = null;

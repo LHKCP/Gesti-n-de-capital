@@ -1,6 +1,27 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Transaction, Currency } from '../types/finance';
 import { playKeypadTone, playSuccessChime, triggerHaptic, triggerConfetti } from '../utils/feedback';
+
+/**
+ * Filter out debt amortizations and savings contributions from Movimientos.
+ * As requested, savings and debt amortizations only deduct in FOCO to determine available capital.
+ */
+export const isVariableMovement = (tx: Transaction): boolean => {
+  const cat = (tx.category || '').toLowerCase();
+  const concept = (tx.concept || '').toLowerCase();
+  if (cat.includes('ahorro') || cat.includes('deuda') || cat.includes('amortiz')) {
+    return false;
+  }
+  if (
+    concept.includes('aporte a ahorro') ||
+    concept.includes('aporte mensual') ||
+    concept.includes('amortización deuda') ||
+    concept.includes('amortizacion deuda')
+  ) {
+    return false;
+  }
+  return true;
+};
 
 interface TransactionsScreenProps {
   transactions: Transaction[];
@@ -31,6 +52,11 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
   const [filterMode, setFilterMode] = useState<'all' | 'selectedDay'>('all');
   const [showCalendarModal, setShowCalendarModal] = useState<boolean>(false);
 
+  // Calendar Modal Picker state (day, month, year)
+  const [modalYear, setModalYear] = useState<number>(() => new Date().getFullYear());
+  const [modalMonth, setModalMonth] = useState<number>(() => new Date().getMonth() + 1);
+  const [modalDay, setModalDay] = useState<number>(() => new Date().getDate());
+
   // Optimistic toast state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -39,6 +65,9 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
 
   // Reset month modal state
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+
+  // Ribbon container scroll ref
+  const ribbonContainerRef = useRef<HTMLDivElement>(null);
 
   // Current month name
   const currentMonthName = useMemo(() => {
@@ -49,26 +78,56 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
     return monthNames[new Date().getMonth()];
   }, []);
 
-  // Generate 7-day horizontal ribbon centered around today
+  // Determine active ribbon month and year from selectedDateFilter or today
+  const { ribbonYear, ribbonMonth } = useMemo(() => {
+    if (selectedDateFilter && selectedDateFilter.includes('-')) {
+      const parts = selectedDateFilter.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      if (!isNaN(y) && !isNaN(m)) {
+        return { ribbonYear: y, ribbonMonth: m };
+      }
+    }
+    const now = new Date();
+    return { ribbonYear: now.getFullYear(), ribbonMonth: now.getMonth() };
+  }, [selectedDateFilter]);
+
+  // Generate ribbon days covering all days of the month (starting from day 1)
   const ribbonDays = useMemo(() => {
     const days = [];
-    const now = new Date();
-    for (let offset = -4; offset <= 2; offset++) {
-      const d = new Date(now);
-      d.setDate(now.getDate() + offset);
-      const iso = d.toISOString().split('T')[0];
-      const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
-      const dayName = offset === 0 ? 'HOY' : dayNames[d.getDay()];
-      const dayNum = d.getDate();
+    const totalDaysInRibbonMonth = new Date(ribbonYear, ribbonMonth + 1, 0).getDate();
+    const today = new Date();
+    const todayIso = today.toISOString().split('T')[0];
+    const dayNames = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+
+    for (let dayNum = 1; dayNum <= totalDaysInRibbonMonth; dayNum++) {
+      const d = new Date(ribbonYear, ribbonMonth, dayNum);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(dayNum).padStart(2, '0');
+      const iso = `${yyyy}-${mm}-${dd}`;
+      const isToday = iso === todayIso;
+      const dayLabel = isToday ? 'HOY' : dayNames[d.getDay()];
+
       days.push({
         iso,
-        label: dayName,
+        label: dayLabel,
         number: dayNum,
-        isToday: offset === 0,
+        isToday,
       });
     }
     return days;
-  }, []);
+  }, [ribbonYear, ribbonMonth]);
+
+  // Auto scroll to active day in horizontal ribbon
+  useEffect(() => {
+    if (ribbonContainerRef.current) {
+      const activeEl = ribbonContainerRef.current.querySelector<HTMLElement>('[data-selected="true"]');
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+  }, [selectedDateFilter, ribbonYear, ribbonMonth]);
 
   // Frequent quick concept categories
   const frequentConcepts = [
@@ -80,29 +139,30 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
     { label: 'Ocio', icon: 'sports_esports', color: 'text-[#e1e0ff]' },
   ];
 
-  // Calculate monthly variable expenses and income
+  // Calculate monthly variable expenses and income (excluding Ahorro and Deuda/Amortización)
   const totalVariableExpense = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'expense')
+      .filter((t) => t.type === 'expense' && isVariableMovement(t))
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
   const totalVariableIncome = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'income')
+      .filter((t) => t.type === 'income' && isVariableMovement(t))
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
   const expensesCount = useMemo(() => {
-    return transactions.filter((t) => t.type === 'expense').length;
+    return transactions.filter((t) => t.type === 'expense' && isVariableMovement(t)).length;
   }, [transactions]);
 
-  // Filter transactions based on date ribbon or mode
+  // Filter transactions based on date ribbon or mode (only variable movements)
   const displayedTransactions = useMemo(() => {
+    const variableOnly = transactions.filter(isVariableMovement);
     if (filterMode === 'selectedDay') {
-      return transactions.filter((t) => t.dateStr === selectedDateFilter);
+      return variableOnly.filter((t) => t.dateStr === selectedDateFilter);
     }
-    return transactions;
+    return variableOnly;
   }, [transactions, filterMode, selectedDateFilter]);
 
   // Group transactions by date for aesthetic feed
@@ -122,6 +182,50 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
+  };
+
+  const openCalendarModal = () => {
+    if (selectedDateFilter && selectedDateFilter.includes('-')) {
+      const parts = selectedDateFilter.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      const d = parseInt(parts[2], 10);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        setModalYear(y);
+        setModalMonth(m);
+        setModalDay(d);
+      }
+    } else {
+      const now = new Date();
+      setModalYear(now.getFullYear());
+      setModalMonth(now.getMonth() + 1);
+      setModalDay(now.getDate());
+    }
+    setShowCalendarModal(true);
+  };
+
+  const maxDaysInModalMonth = useMemo(() => {
+    return new Date(modalYear, modalMonth, 0).getDate();
+  }, [modalYear, modalMonth]);
+
+  const handleApplyCalendarDate = () => {
+    const safeDay = Math.min(modalDay, maxDaysInModalMonth);
+    const iso = `${modalYear}-${String(modalMonth).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+    setSelectedDateFilter(iso);
+    setFilterMode('selectedDay');
+    setShowCalendarModal(false);
+    playKeypadTone(540, 20);
+    triggerHaptic(12);
+    showToast(`Fecha seleccionada: ${iso}`);
+  };
+
+  const handleGoToToday = () => {
+    setSelectedDateFilter(todayStr);
+    setFilterMode('selectedDay');
+    setShowCalendarModal(false);
+    playKeypadTone(500, 15);
+    triggerHaptic(8);
+    showToast(`Mostrando hoy: ${todayStr}`);
   };
 
   const handleQuickConcept = (concept: { label: string; icon: string }) => {
@@ -376,12 +480,16 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar">
+          <div
+            ref={ribbonContainerRef}
+            className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar scroll-smooth"
+          >
             {ribbonDays.map((day) => {
               const isSelected = selectedDateFilter === day.iso;
               return (
                 <button
                   key={day.iso}
+                  data-selected={isSelected ? 'true' : 'false'}
                   type="button"
                   onClick={() => {
                     setSelectedDateFilter(day.iso);
@@ -406,9 +514,9 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
             {/* Global Calendar Picker button */}
             <button
               type="button"
-              onClick={() => setShowCalendarModal(true)}
+              onClick={openCalendarModal}
               className="flex flex-col items-center justify-center min-w-[48px] h-[52px] rounded-xl bg-[#2d3449] text-[#4edea3] hover:bg-[#31394d] border border-white/5 transition-all flex-shrink-0 shadow-sm"
-              title="Abrir calendario"
+              title="Abrir calendario completo (Día, Mes, Año)"
             >
               <span className="material-symbols-outlined text-[22px]">calendar_month</span>
             </button>
@@ -592,49 +700,152 @@ export const TransactionsScreen: React.FC<TransactionsScreenProps> = ({
         </div>
       )}
 
-      {/* Global Calendar Modal */}
+      {/* Global Calendar Modal with Day, Month, and Year selectors */}
       {showCalendarModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-[#171f33] border border-white/10 rounded-2xl p-5 w-full max-w-xs shadow-2xl flex flex-col gap-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn">
+          <div className="bg-[#171f33] border border-white/10 rounded-2xl p-5 w-full max-w-sm shadow-2xl flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-[#4edea3]">
-                <span className="material-symbols-outlined text-[20px]">calendar_month</span>
+                <span className="material-symbols-outlined text-[22px]">calendar_month</span>
                 <h3 className="font-sans text-base font-bold text-white">Seleccionar Fecha</h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowCalendarModal(false)}
-                className="text-[#bbcabf] hover:text-white"
+                className="text-[#bbcabf] hover:text-white p-1"
+                title="Cerrar"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <input
-              type="date"
-              defaultValue={selectedDateFilter}
-              onChange={(e) => {
-                if (e.target.value) {
-                  setSelectedDateFilter(e.target.value);
-                  setFilterMode('selectedDay');
-                  setShowCalendarModal(false);
-                  playKeypadTone(500, 15);
-                }
-              }}
-              className="w-full bg-[#0b1326] border border-white/10 rounded-xl px-4 py-3 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
-            />
+            <p className="text-xs text-[#bbcabf] leading-relaxed">
+              Modifica libremente el <strong className="text-white">día, mes y año</strong> para navegar por cualquier fecha y registrar o consultar movimientos.
+            </p>
 
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedDateFilter(todayStr);
-                setFilterMode('selectedDay');
-                setShowCalendarModal(false);
-              }}
-              className="py-2.5 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-white transition-colors"
-            >
-              Ir a Hoy
-            </button>
+            {/* Selectors for Día, Mes, Año */}
+            <div className="grid grid-cols-3 gap-2">
+              {/* Día */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase font-num text-[#bbcabf] font-semibold">
+                  Día
+                </label>
+                <select
+                  value={modalDay > maxDaysInModalMonth ? maxDaysInModalMonth : modalDay}
+                  onChange={(e) => setModalDay(parseInt(e.target.value, 10))}
+                  className="bg-[#0b1326] border border-white/10 rounded-xl px-2 py-2.5 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
+                >
+                  {Array.from({ length: maxDaysInModalMonth }, (_, i) => i + 1).map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Mes */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase font-num text-[#bbcabf] font-semibold">
+                  Mes
+                </label>
+                <select
+                  value={modalMonth}
+                  onChange={(e) => {
+                    const newM = parseInt(e.target.value, 10);
+                    setModalMonth(newM);
+                    const daysInNewM = new Date(modalYear, newM, 0).getDate();
+                    if (modalDay > daysInNewM) {
+                      setModalDay(daysInNewM);
+                    }
+                  }}
+                  className="bg-[#0b1326] border border-white/10 rounded-xl px-1.5 py-2.5 font-sans text-xs text-white focus:outline-none focus:border-[#4edea3]"
+                >
+                  {[
+                    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+                  ].map((mName, idx) => (
+                    <option key={idx + 1} value={idx + 1}>
+                      {mName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Año */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase font-num text-[#bbcabf] font-semibold">
+                  Año
+                </label>
+                <select
+                  value={modalYear}
+                  onChange={(e) => {
+                    const newY = parseInt(e.target.value, 10);
+                    setModalYear(newY);
+                    const daysInNewY = new Date(newY, modalMonth, 0).getDate();
+                    if (modalDay > daysInNewY) {
+                      setModalDay(daysInNewY);
+                    }
+                  }}
+                  className="bg-[#0b1326] border border-white/10 rounded-xl px-2 py-2.5 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
+                >
+                  {Array.from({ length: 16 }, (_, i) => 2020 + i).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Native Date Input Sync for quick calendar picker */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase font-num text-[#bbcabf] font-semibold">
+                O usa el selector nativo
+              </label>
+              <input
+                type="date"
+                value={`${modalYear}-${String(modalMonth).padStart(2, '0')}-${String(
+                  Math.min(modalDay, maxDaysInModalMonth)
+                ).padStart(2, '0')}`}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const [y, m, d] = e.target.value.split('-');
+                    setModalYear(parseInt(y, 10));
+                    setModalMonth(parseInt(m, 10));
+                    setModalDay(parseInt(d, 10));
+                  }
+                }}
+                className="w-full bg-[#0b1326] border border-white/10 rounded-xl px-3 py-2 font-num text-sm text-white focus:outline-none focus:border-[#4edea3]"
+              />
+            </div>
+
+            {/* Date Preview pill */}
+            <div className="bg-[#0b1326] px-3 py-2 rounded-xl border border-white/5 flex items-center justify-between text-xs font-num text-[#dae2fd]">
+              <span className="text-[#bbcabf]">Fecha a aplicar:</span>
+              <strong className="text-[#4edea3] font-semibold">
+                {String(Math.min(modalDay, maxDaysInModalMonth)).padStart(2, '0')}/
+                {String(modalMonth).padStart(2, '0')}/{modalYear}
+              </strong>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleGoToToday}
+                className="flex-1 py-2.5 rounded-xl bg-[#222a3d] hover:bg-[#2d3449] text-xs font-semibold text-white transition-colors"
+              >
+                Ir a Hoy
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyCalendarDate}
+                className="flex-1 py-2.5 rounded-xl bg-[#4edea3] hover:bg-[#6ffbbe] text-[#003824] text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1 active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[16px]">check</span>
+                <span>Aplicar Fecha</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

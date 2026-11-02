@@ -1,4 +1,4 @@
-import { FinanceData } from '../types/finance';
+﻿import { FinanceData } from '../types/finance';
 import { checkAndProcessMonthlyContributions } from './savingsAutomation';
 
 const STORAGE_KEY = 'capitalfocus_state_v1';

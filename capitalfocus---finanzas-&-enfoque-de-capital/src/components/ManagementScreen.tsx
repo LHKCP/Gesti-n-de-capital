@@ -729,12 +729,12 @@ export const ManagementScreen: React.FC<ManagementScreenProps> = ({
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-[#4edea3] text-[22px]">tune</span>
-              <h2 className="font-sans text-lg font-bold text-white tracking-tight">
-                Compromisos e Ingresos Fijos
+              <h2 className="font-sans text-xl font-bold text-white tracking-tight">
+                Fijos
               </h2>
             </div>
             <span className="font-num text-[10px] uppercase px-2.5 py-1 rounded-full bg-[#171f33] text-[#4edea3] font-bold tracking-wider border border-[#4edea3]/20">
-              Persisten Mes a Mes
+              Gastos &amp; Ingresos Recurrentes
             </span>
           </div>
 
